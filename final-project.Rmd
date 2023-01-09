@@ -1,0 +1,537 @@
+---
+title: "Final project"
+author: "Me_859"
+date: "4/3/2021"
+output:
+  html_document: null
+  word_document: default
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include=TRUE, message=F, warning=F, echo=FALSE)
+options(digits=3)
+# To control the font size of Latex output
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\n \\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+library(latexpdf)
+```
+
+
+```{r, include=FALSE}
+#libraries:
+library(tidyverse)
+library(tidymodels)
+library(essurvey)
+library(haven)
+library(nnet)
+library(stargazer)
+library(janitor)
+library(kableExtra)
+library(RColorBrewer)
+library(ggbeeswarm)
+library(dplyr)
+library(broom)
+library(glmnet)
+library(AER)
+library(car)
+library(tibble)
+library(ipumsr)
+library(labelled)
+library(modelr)
+library(lmtest)
+library(bookdown)
+```
+
+```{r, include=FALSE}
+
+setwd("/Users/samo/Documents/CSS program/Discrete choice /assignment/Final Assignment/data")
+# loading package:
+new.jersey <- readRDS("New Jersey.rds")
+states <- readRDS("States.rds")
+```
+
+```{r, include=FALSE}
+
+#prepare data:
+new.jersey <- new.jersey %>%
+  recode_missings()%>%
+  mutate(migrate1 = as_factor(migrate1))%>%
+  mutate(migrate1,migration =
+         if_else(migrate1 == "Same house",1,0))%>%
+  mutate(internal_migration = fct_recode(migrate1,
+                                Same_house = "Same house",
+                                Moved_within_states = "Moved within state",
+                                Moved_between_states = "Moved between states",
+                                abroad = "Abroad one year ago",
+                                uknown = "Unknown"))%>%
+  mutate(internal_migration = fct_relevel(internal_migration, "Same_house"))%>%
+  filter(internal_migration!= "uknown")%>%
+    filter(internal_migration!= "abroad")%>%
+  mutate(marst = to_factor(marst))%>%
+  mutate(marital_status = fct_recode(marst, 
+                                    Married = "Married, spouse present", 
+                                    Married = "Married, spouse absent",
+                                    Single = "Separated",
+                                    Single = "Divorced",
+                                    Single = "Widowed",
+                                    Single = "Never married/single")) %>%
+  mutate(empstat = to_factor(empstat))%>%
+  filter(!is.na(empstat))%>%
+  mutate(employment_status = fct_recode(empstat,
+                                        Employed = "Employed",
+                                        Unemployed = "Unemployed",
+                                       notinlaborforce = "Not in labor force",
+                                       missing = "N/A"))%>%
+    filter(employment_status!="missing")%>%
+  mutate(mortgage = to_factor(mortgage))%>%
+  mutate(mortgage_status = fct_recode(mortgage,
+                            free_and_clear = "No, owned free and clear",
+                            mortgaged = "Yes, mortgaged/ deed of trust or similar debt",
+                            contract_to_purchase = "Yes, contract to purchase",
+                            missing = "N/A")) %>%
+ filter(mortgage_status!= "missing")%>%
+  mutate(mortamt1,mortgage1stpay =
+         if_else(mortamt1 == median(mortamt1),1,0))%>%
+  mutate(hhincome,household_income =
+         if_else(hhincome == median(hhincome),1,0))%>%
+  mutate(numberof_children = as.integer(nchild),
+         family_size = as.integer(famsize),
+        rooms.no = as.integer(rooms),
+         new_married = to_factor(marrinyr),
+         age = as.integer(age),
+        gender =to_factor(sex),
+        laborforce = to_factor(labforce),
+         personal_income = (inctot),
+         family_income = (ftotinc),
+         mortgageinctax = to_factor(taxincl),
+         classofwork = to_factor(classwkr))%>%
+    filter(!is.na(marital_status),!is.na(new_married), !is.na(numberof_children), !is.na(age), !is.na(family_size), !is.na(migration), !is.na(gender),!is.na(household_income),!is.na(rooms.no), !is.na(gender),!is.na(classofwork),!is.na(employment_status), !is.na(internal_migration))
+
+```
+
+In this paper, I use data from the American Community Survey (ACS) from IPUMS program to examine patterns of residential mobility and internal migration in the United States. this data is data from a single US state _New.Jersey_ with a focal variable _Age_.  
+
+
+### 1 Move or Stay  
+
+Residential mobility is considered as natural stage in the individual life. staying or moving is associated by many factors like the human life events and stages which generally relates to household attributes, housing specification and location, the availability of amenities and other reasons (Winstanley, Thorns, & Perkins, 2002).  
+
+
+In this problem, I will examine the determinants of residential mobility in USA. and I will estimate the relationship between `age`variable range from 16 to 95 and migration status variable `migrate1`, defined as whether the person had changed residence since a reference point 1 year. all eligible persons who did not move since the reference year are coded as 1 otherwise 0 (binary). And I expect that the decision to stay in the same housing unit is positively related to age.   
+
+
+In general, communities where individuals are born and live represent a source for engagement for them and their families with time. So people who live in their houses since born start to build connections with the surrounding i.e neighbors, friends etc. so their desire to stay in their houses increase with age. According to AARP survey, 53% of adults whose ages between 18-49 and 76% of adults whose ages above 50 plan to stay and get older at their houses and communities. and even expect to do some modifications that suit with their age needs (Vasold. 2018). I hypothesizenthat the more an individual get older, the more belonging he feels to stay in the same housing unit.  
+
+To begin this, Visualize the relationship between age as continuous variable and migration as binary variable where stay at the same housing unit is coded as 1 otherwise 0. The results are displayed as the red line , in Figure 1. The overall pattern, of more staying at the same house in the different ages, conforms to expectations and in line with my hypothesis. There are clear non-linear relationship inside the logical probability bounds.   
+  
+    
+    
+
+
+
+```{r, echo=FALSE}
+
+new.jersey %>% 
+  ggplot(aes(age,migration)) + 
+  geom_smooth() +
+  geom_quasirandom(groupOnX = F, width=0.02) +
+  scale_x_continuous(breaks=c(0,0.5,1)) +
+  labs(title="Figure 1: Relationship between age and binary decision to stay", 
+       caption="Source: USA IPUMS program")
+
+
+```
+  
+    
+
+```{r, echo=FALSE, include=FALSE}
+# logistic model
+lr1 <- glm(migration~ age , family=binomial(link="logit"), data = new.jersey)
+lr2 <- glm(migration~ age  + marital_status + numberof_children  ,family=binomial(link="logit"), data = new.jersey)
+
+tidy(lr1, exponentiate = TRUE, conf.int = TRUE)
+tidy(lr2, exponentiate = TRUE, conf.int = TRUE)
+
+```
+    
+
+
+
+To judge whether this relationship between age and migration decision at staying in the same housing unit is statistically significant, I estimated logistic regression model of migration as a function of age. The logistic regression estimates are displayed in `Table 1`, the logistic regression estimates are displayed in column 1 of `Table 1`.  Respectively, the age effect is statistically significant at the `p<0.01` level in both models. The logistic regression model shows that the odds of the decision to state at the same housing unit are 5 percent higher for each year of age. The constant term implies that the odds of decision to stay at the same housing unit at age 0 are 1.5:1, which translates to a 60 % probability of  staying at the same housing unit. These results are still inline with my hypothesis.  we notice that effect sizes and the standard errors are small for all categories which suggests no potential separation problems for these variables.  
+
+
+There could be many mediating variables that would at least partially explain the relationship between age and  the migration decision to stay at the same housing unit. First, marital status of individuals plays a key role in their decisions to stay or move. For example, single persons have no ties with the household responsibilities compared to married couple who have household activities and children.  (Ferreira et al., 2010). Furthermore, we would expect that the number of children increases the likelihood to stay because of the responsibilities individuals have and their children 's school engagements. this includes couples who are married and singles who are separated, widowed or divorced. to the extent that marital status and number of children they have are associated with the stay decision, which we have determined above, this would imply that controlling for marital status and the number of children will change the age effects. we would expect that the older people are more likely at having marital status and more likely at they live with children: either their own children, step children or grand children and this will strengthen their decision to stay at the same housing unit. Given that age is associated with the likelihood of being married or singles and having children, we would thus expect marital status and the number of children to at least partly explain the age effect.   
+  
+  
+To test whether these variables mediate the effect of age on internet use, I estimated logistic regression model of decision whether to stay or move as a function of age, including controls for marital status as factor variable distinguish between married couples and single individuals including separated, divorced, widowed and single persons and controlling also for the number of children as numeric variable ranging from 0 as no children to 9+ children.   These are contained in column 2 of `Table 1`, respectively. In both cases, the inclusion of controls leads to a slight difference of the age effect on decision to stay, by 113 percent.  The effect of the number of children is statistically significant for at the p<0.01 level. Also the logistic regression model shows that the odds of the decision to stay at the same housing unit are 36 percent higher for each child. The coefficients for the the number of children largely fall in the directions expected and support my hypothesis.   
+  
+  
+The likelihood ratio rejects the hypothesis that marital status and the number of children have no effect on the decision to stay at the same housing unit. thus it seems that we have sufficient evidence to accept the alternative hypothesis that our explanatory variables as age, marital status and the number of children affect on the decision to stay at the same housing unit.  
+  
+    
+    
+
+```{r, include=FALSE}
+100*(exp(coef(lr1)["age"])-1) # 4.78
+(exp(coef(lr1)["(Intercept)"])) # 1.5/(1.5+1)
+100*coef(lr2)["age"]/coef(lr1)["age"] #113
+100*(exp(coef(lr2)["numberof_children"])-1)
+```
+
+```{r, echo=FALSE, message=FALSE}
+# calculat likelihood ratio test:
+lrtest <- lrtest(lr1,lr2)
+pvalue_lrtest <-  format(lrtest$`Pr(>Chisq)`[2], digits = 2)
+chisqr_lrtest <-  format(lrtest$`Pr(>Chisq)`[2], digits = 2)
+notes1 <-  c(paste0("Likelihood Ratio Test: ", pvalue_lrtest,
+                    ifelse(pvalue_lrtest<0.01, "***","")),
+             paste0("N= ", format(nrow(new.jersey), big.mark= ",")))
+# create a table:
+
+stargazer(list(lr1, lr2),  
+          header = FALSE,
+          title = "Table 1: Logistic regression model of binary decision to stay at the same housing unit",
+          dep.var.labels.include = F,
+          dep.var.caption = "",
+          star.cutoffs = c(0.05,0.01,0.001),
+          notes = notes1, 
+          type = "text")
+```
+  
+  
+  
+`Figure 2` plots the predicted probabilities of the binary decision to stay at the same housing unit by age from  logistic regression models. It shows that the predicted probabilities of both logistic regression models match the observed, raw proportions in the data. when translating the log-odds into probabilities, the resulting calculations match the observed proportions. Once again, the findings fit with my hypothesis.
+ 
+   
+   
+```{r, include=FALSE}
+# Predictions
+# Age
+logistic<-function(x) { 1/(1+exp(-x))}
+new.jersey %>% group_by(age) %>% summarize(n())%>% augment(lr1,newdata=., se_fit = T,type.predict="response") -> pred_age
+
+# Full model
+new.jersey %>% modelr::data_grid(age ,
+                                 marital_status,
+                                 numberof_children = c(1)) %>% augment(lr2, newdata=., se_fit = T,type.predict="response") -> pred_all
+```
+
+```{r agemigration, fig.cap="decision to stay by age, ACS sample provided through the USA IPUMS program", echo=FALSE}
+
+# plot for predictions
+logistic <- function(x) {return(1/(1+exp(-x)))}
+ggplot(new.jersey, aes(x =age, y = migration)) + geom_smooth(se =F, aes(color ="smoothed proportion line")) +
+  geom_line(data = pred_age, aes (x = age, y = .fitted, color = "Lr1")) +
+  geom_line(data = pred_all, aes (x = age, y = .fitted, color = "Lr2")) + theme(text = element_text(size=10)) + labs(title = "Figure 2: predicted probability of marital status and number of children and employment by age", x = "age", y = "probability")
+```
+
+  
+    
+    
+    
+    
+    
+    
+    
+    
+    
+## 2 Move Distance  
+  
+  
+Internal migration in the United States is introduced as the movement of households or individuals from one place to another within or between states and is considered as a human capital investment where people calculate the advantages value when they migrate to another place and compare it with the place they live in, so it is an investment decision in most cases (Borjas, 1987). The movement also connected with the multiple events in different life domains (Grootet al. 2011) like employment changes, relationship or academic event events, etc..  
+  
+  
+On the level of employment changes, individuals move from one labor market to another to improve their labor situation or to look for a new job if they have no job. these movements can vary between individuals due to certain factors like age or the difference in wages across locations. but this decision of movement may be costly according to location or destination. So I expect individuals who are unemployed or seeking to a new job to move within state rather than between states as it will be less costs. Individual who are employed and are satisfied with their jobs, their decision to stay and not move are most likely but who are looking for more wages or promotions, may not take destinations into consideration so I expect them to move within or between states. also who are not in the labor force like students, I expect they are more likely to move distance due to their academic changes.  
+On the relationship level, getting married is considered as a crucial social factor of movement and migration so it is expected leave his current residence house or their family home and move to share with his partner and form a family.(Kulu, 2008). So I expect individuals who are new married are more likely to move within or between states depending on the current residence place of partner. 
+  
+  
+In `figure 3`, I visualize the relationship between the focal variable `age` and the multinomial migration outcome, here I use the variable migrate1 with three categories: (1) Same house, (2)Moved within States and (3) Moved between States. in the figure, we see non- linearities between the predictor age and the outcome. for the first category `Same house`, we notice that the density is small in young ages but increase with age while the opposite for the second category `moved within states` where the density is big at the young ages while decreases by age while the third category `Moved between states`, the density is nearly small at different ages.  
+  
+  
+
+```{r, echo=FALSE}
+# relationship between age and migration
+
+    ggplot(new.jersey, aes(x = age, fill = internal_migration)) +
+          geom_density(position = "fill", bw = 5) +
+    scale_fill_brewer(palette = "Blues") + labs(title = "Figure 3: density of movement decision by age")
+```
+  
+    
+    
+To examine these hypotheses, I estimated two multinomial logistic regression models of internal migration `migrate1` as outcome with three categories, where the reference category is "Same house" and the explanatory variables are the employment status with three categories featuring the employed, unemployed and who are not in the labor force individuals (including who are in schools and housholds), also new_married variable which persons who had married within the 12 months as another explanatory categorical variable . the models are represented in `Table 2`. Model 1 displays coefficients for a model with age as the only explanatory variable. Model 2 contains the coefficients for a model that considers age with employment status and new married as explanatory variables. we notice that effect sizes and the standard errors are small for all categories which suggests no potential separation problems for these variables.  
+  
+  
+
+```{r, include=FALSE, message=FALSE, warning=FALSE}
+# estimate multinomial model:
+model1 <- multinom(internal_migration ~ age , data = new.jersey)
+model2 <- multinom(internal_migration ~ age + new_married + employment_status, data = new.jersey)
+# check for estimation values and standard errors
+tidy(model1, exponentiate = TRUE, conf.int = TRUE)
+tidy(model2, exponentiate = TRUE, conf.int = TRUE)
+# exponentiate coefficients
+format(100*(exp(coef(model1))),digits=2)
+format(100*(exp(coef(model2))),digits=2)
+```
+
+Model 1 in `Table 2` reveals negative significant effect for age with moving within and between states. For example, age on the likelihood of moving within states reveals that elderly individuals have `e^0.06` = 1.06 times lower odds of moving within states, rather than staying at the same housing unit, compared to who stay at the same housing unit. This difference was significant at the `p<0.001` level. Meanwhile, they have `e^0.01` = 1.01 times lower odds of moving between states, as opposed to staying at the same housing unit. This coefficient was significant at the `p<0.01` level.  
+  
+  
+Model 2 in `Table 2` includes the effects of employment status and new married on moving distance outcome of respondent represented by `internal_migraton` variable. we notice that a slight difference in the age effect on the level of moving between states while it is still the same on the level of moving within states. The pattern of effects we observe for age remain unaffected when we control for new married and employment status. If anything, there is slight difference of the age coefficient on the level of moving between states. we have three effects are significant for employment status. First, for employed individuals have `e^0.93`= 2.5 lower odds of moving between states than staying. Second, for unemployed who have `e^0.45`= 1.6 lower odds of moving within states than staying. Third, for those who are not in labor force , they may be in schools or households. those have `e^0.33`= 1.3 higher odds of moving within states than staying. Also we notice a significant effect for who are new married with `e^0.49`= 1.63 higher odds of moving within states than staying at the same housing unit. while those who are not married, they have `e^1.31`= 3.7 lower odds of moving between states and `e^0.55`= 1.7 lower odds of moving with states than staying at the same housing unit. This in line with my expectation and hypotheses.
+  
+    
+    
+```{r, message=FALSE,echo=FALSE}
+
+# prepare table
+note<-paste0("N=",format(nrow(new.jersey),big.mark=","))
+table <-capture.output(stargazer(list(model1, model2), type = "text",
+          title = "(Table2: Multinomial logistic regression models of internal migration",
+          digits=2, 
+          float.env = "sidewaystable",
+          font.size = "footnotesize",
+          tab.width = "0.7\\textwidth",
+          dep.var.caption = "XYZ", 
+          notes = c("Source: IPUMS",note),
+          header=F,
+          star.cutoffs = c(0.05,0.01,0.001),
+          model.numbers = F)) %>% 
+  str_replace("\\\\multicolumn\\{5\\}\\{c\\}\\{XYZ\\}",
+              "\\\\multicolumn{6}{c}{\\(1\\) Age Only Model} & 
+              \\\\multicolumn{6}{c}{\\(2\\) Age, new married and employment status Model}")
+
+table
+```
+  
+    
+    
+    
+    
+    
+`Table 3` presents fit statistics for this model and the model including only age as an predictor variable. The likelihood ratio test rejects the hypothesis that gender and employment status has no effect on moving distance. However, BIC favors the more parsimonious model. In this case,  I accept the BIC favor model 2 that include the new married and employment status as control variables.Thus, it seems that we have sufficient evidence to accept the alternative hypothesis that our explanatory variables as age, employment status and new married affect on the internal migration (move distance).    
+
+
+```{r fit, echo=FALSE}
+# likelihood and BIC calculation
+fits<-lrtest(model1,model2) %>% 
+  tidy() %>% 
+  bind_cols(Model=c("(1) age only","(2) age,new married & employment")) %>% 
+  mutate(N = nrow(new.jersey),
+         BIC=-2*LogLik+X.Df*log(N)) %>% 
+  select(Model,N,X.Df,LogLik,BIC,df,statistic,p.value) %>% 
+  rename("$\\Delta df$"=df, df=X.Df,"$\\chi^2$"=statistic, p=p.value) %>% 
+  mutate(p=ifelse(p>.001,as.character(round(p,3)),"<0.001"))
+
+options(knitr.kable.NA = '')
+kbl(fits,booktabs = T,
+    caption="Table 3: Fit statistics for multinomial logit models of moving distance/internal migration",
+    escape = F, digits = 2)%>%
+  kable_styling()
+```
+
+  
+  
+  
+  
+  
+
+Predicted probabilities for Model 2 are presented in `Figure 4`. The figure shows that for individuals who are employed and unemployed were most likely to stay at the same housing unit when they are getting older with age. and their second most likely move distance outcome was to move within states while they are get older with age. whereas moving between states was the least common move distance outcome across all other outcome categories.  
+  
+    
+    
+    
+    
+    
+
+```{r employ, echo=FALSE, fig.cap= "Estimates from multinomial logistic regression", include=FALSE}
+# prediction data set
+
+predict_age <- expand_grid(age = c(16,95,5), 
+                           employment_status = c("Employed", "Unemployed"),
+                          new_married = c("Yes"))
+
+predict(model2, newdata = predict_age, "probs")
+
+
+# to bind the predicted probabilities
+predictions <- predict(model2, newdata = predict_age, "probs") %>% 
+  as_tibble() %>% 
+  bind_cols(predict_age)
+
+# prepare to plot
+predictions_long <- predictions %>% 
+  pivot_longer(cols = Same_house:Moved_between_states,
+               names_to = "internal_migration",
+               values_to = "prediction")
+predictions_long
+
+
+```
+  
+    
+```{r, echo=FALSE}
+# to plot our predicted probabilities
+theme_set(theme_light())
+
+ggplot(predictions_long, 
+       aes(age,prediction, color = internal_migration)) +
+  geom_line(size = 0.5) +
+  labs(title = "Figure 4: internal migration in the 
+       USA ",
+       subtitle = "Estimates from multinomial 
+       logistic regression",
+       y = "Predicted migration probability",
+       x = "age scale",
+       color = "internal_migration",
+       caption = "Data from IPUMS source")
+```
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+## 3 Move Destination  
+
+```{r, include=FALSE}
+library(mlogit)
+library(dfidx)
+library(tidylog, warn.conflicts = FALSE)
+```
+
+```{r, include=FALSE}
+#data preparation:
+states_n <- states %>%
+  mutate(adults_md = AgeShare18to24 + AgeShare25to44,
+         older_md= AgeShare65plus,
+         singles_md = MarrStatusShareNeverMarried,
+         married_md = MarrStatusShareMarried,
+         marriage_rate_md = MarrRate,
+         freezmonths_md =  FreezingMonths,
+         hotmonths_md = HotMonths,
+         sun_md = Sunlight,
+         employed_md = EmpStatusShareEmployedMale + EmpStatusShareEmployedFemale)%>%
+  filter(!is.na(adults_md),
+         !is.na(older_md),
+         !is.na(singles_md),
+         !is.na(married_md),
+         !is.na(marriage_rate_md), 
+         !is.na(sun_md), 
+         !is.na(employed_md),
+         !is.na(freezmonths_md),
+         !is.na(hotmonths_md))%>%
+  select(statefip, adults_md, older_md, singles_md, married_md, marriage_rate_md, employed_md,sun_md,freezmonths_md, FreezingMonths,hotmonths_md, HotMonths, Sunlight, AgeShare65plus)
+
+states_n %>%
+  pivot_longer(cols = ends_with("_md"), names_to = "issue", values_to = "value") %>%
+  group_by(issue)  %>%
+  summarise(min=min(value),
+            max=max(value),
+            mean=mean(value),
+            sd=sd(value))
+
+individual_level <- new.jersey %>% 
+  mutate(id=paste0(year,serial),
+         migrate1 = as_factor(migrate1 == 3),
+         age = as.integer(age),
+         male = as_factor(sex == 1),
+         race = as_factor(race),)%>% 
+  arrange(serial)%>% 
+  select(id, statefip,year, serial, age, employment_status, gender, migrate1, empstat, sex,st_orig, marst, marrinyr, gender, race, hhincome, new_married, marital_status, numberof_children, family_size, family_income,male)%>%
+  filter(!is.na(statefip), !is.na(migrate1), !is.na(gender), !is.na(employment_status),!is.na(age), !is.na(male))
+```
+
+```{r, include=FALSE, message=FALSE}
+# preparing for choice data:
+combineddata <- individual_level %>%
+  full_join(states_n, by = character())%>%
+  mutate(choice =
+           ifelse(statefip.x == statefip.y, 1, 0),
+         choice = as.logical(choice))
+try(na.fail(combineddata))
+combineddata <-  na.omit(combineddata)
+
+```
+
+While the socioeconomic and demographic factors have effect on the individual movement between states, there are other external potential factors on the state-level that affecting on the individuals' decision of moving between states. For example, the increase in shares of employed individuals in a state is expected to reduce the movement of individuals to and from this state (Zaiceva, 2014). Also the geographical features of the state such as the  climate conditions like the average temprature and sunlight exposure and water resources, these amenities affect the migration flow to a state. so climate condition is expected to have a significant effect on the interstate migration especially between northern and southern areas (Cebula, 2005). so while internal migration decrease with age, older people are less likely to migrate seeking for jobs or more life conditions like young individuals but there are another peak of migration following retirement where they are no longer anchored to their jobs, they may leave seeking for better climate conditions like warmer weather and sun exposure. So I expect that there is a significant effect for climate conditions interacted by age on the choice decision. Older people are more likely to choose states with hotmonths and sun exposure shares. 
+
+To test that, I use two data, the first is on the individual level and the other on the state level and merge them to get data for choice model. where the alternative level characteristics come from `States`data and the individual level characteristics come from ACS data of `new jersey`.  
+
+I estimate two discrete choice model with the same choice function for every state. `Model 1,Table 4` includes attributes of alternative for choice and estimate  how climate conditions affect individual choices to which state they move. Model 1 includes two alternative characteristics of climate hotmonths share and freezing months share  which  might affect the choice decision of state. The coefficients estimates are as follows: 
+  All else equal, individuals had  51 lower odds of choosing state with 1 unit higher mention of freezingmonths.  
+  All else equal, individuals had 4 lower odds of choosing state with 1 unit higher mention of Hotmonths  
+
+While Model 2 includes the same variables but with interaction on the individual level with the focal variable age. the coefficients are significant for all variables. we notice noticeable difference in the estimates and this not in line with expectations:  
+  All else equal, older individuals had  99 lower odds of choosing state with 1 unit higher mention of freezingmonths.  
+  All else equal, individuals had 95 lower odds of choosing state with 1 unit higher mention of Hotmonths  
+
+The likelihood ratio rejects the hypothesis that age has effect on the decision to which state move based on the climate condition thus it seems that we have sufficient evidence to accept the alternative hypothesis that the alternative choices on the state level has effect on the decision to move to which state.
+
+```{r, echo=FALSE}
+cmodel1 <- clogit(choice ~ hotmonths_md + freezmonths_md  + strata(id), data = combineddata)
+cmodel2 <- clogit(choice ~ hotmonths_md:age + freezmonths_md:age  + strata(id), data = combineddata)
+
+# calculate likelihood_
+lrtest <- lrtest(cmodel1,cmodel2)
+pvalue_lrtest <-  format(lrtest$`Pr(>Chisq)`[2], digits = 2)
+chisqr_lrtest <-  format(lrtest$`Pr(>Chisq)`[2], digits = 2)
+notes2 <-  c(paste0("Likelihood Ratio Test: ", pvalue_lrtest,
+                    ifelse(pvalue_lrtest<0.01, "***","")),
+             paste0("N= ", format(nrow(combineddata), big.mark= ",")))
+# create a table:
+stargazer(list(cmodel1, cmodel2),  
+          header = FALSE,
+          title = "Table 4: discrete choice model of alternative characteristics of state choice",
+          dep.var.labels.include = F,
+          dep.var.caption = "",
+          star.cutoffs = c(0.05,0.01,0.001),
+          notes = notes2, 
+          type = "text")
+```
+```{r, include=FALSE}
+exp(coef(cmodel1))*100
+exp(coef(cmodel2))*100
+
+```
+  
+    
+    
+    
+    
+    
+References:  
+
+Anzelika Zaiceva, 2014. "The impact of aging on the scale of migration," IZA World of Labor, Institute of Labor Economics (IZA), pages 1-99, November.  
+
+Binette, Joanne and Kerri Vasold. 2018 Home and Community Preferences: A National Survey of Adults Age 18-Plus. Washington, DC: AARP Research, August 2018.  https://doi.org/10.26419/res.00231.001  
+
+Borjas, George. 1987. “Self-Selection and the Earnings of Immigrants.” American Economic Review, 77(4): 531–53.  
+
+Cebula, R.J. (2005). Internal migration determinants: Recent evidence. International Advances in Economic Research, 11(3), 267–274. doi:10.1007/ s11294-005-6656-8  
+
+Groot de C, Mulder CH, Das M, Manting D. Life events and the gap between intention to move and actual mobility. Environment and Planning A. 2011;43(1):48–66. [Google Scholar] [Ref list]  
+
+Kulu H. Fertility and spatial mobility in the life course: evidence from Austria. Environment and Planning A. 2008;40(3):632–652. [Google Scholar] [Ref list]  
+
+Winstanley, A. N. N., Thorns, David C., & Perkins, Harvey C. (2002). Moving House, Creating Home: Exploring Residential Mobility. Housing Studies, 17(6), 813-832.  
+
+Ferreira, Fernando, Gyourko, Joseph, & Tracy, Joseph. (2010). Housing busts and household mobility. Journal of Urban Economics, 68(1), 34-45.  
+
+
+
+
+
+
+
+
+
